@@ -1,0 +1,32 @@
+# Normalize line endings: LF in the repository, platform default on checkout.
+* text=auto
+
+# Files consumed by Linux tooling (Docker builds, CI, containers) must stay LF.
+Dockerfile text eol=lf
+*.dockerignore text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets must never be line-ending converted.
+*.jar binary
+*.war binary
+*.zip binary
+*.gz binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+
+# Don't show these in diffs or count them in language stats.
+package-lock.json -diff -linguist-generated
+*.min.js -diff -linguist-vendored
+*.min.css -diff -linguist-vendored

@@ -1,0 +1,423 @@
+# Freightfox Chat — Spring Boot + Redis
+
+A small chat service built with Spring Boot 3.2, Java 21 and Redis. Rooms, participants
+and message history live in Redis, and messages are pushed to connected browsers in real
+time over Server-Sent Events (SSE) fed by Redis Pub/Sub.
+
+```
+Browser (EventSource) ──GET /stream──► ChatController ──► RealtimeService (SseEmitter registry)
+                                                   ▲
+POST /messages ──► ChatRoomService ──RPUSH──► Redis List
+                        └──PUBLISH──► chat:room:{id}:messages ──► ChatMessageListener ──┘
+```
+
+## Features
+
+- Create, join and delete chat rooms (duplicate/unknown rooms are rejected with 409/404).
+- Send messages; history is stored in a Redis List trimmed to `app.chat.max-history-limit`.
+- Message history newest-N query, returned oldest-first with ISO-8601 UTC timestamps.
+- Real-time delivery: REST send → Redis Pub/Sub → listener → SSE clients of that room only.
+- SSE heartbeat comments every 15 s, automatic emitter cleanup on completion/timeout/error.
+- Bean validation on every request field, consistent JSON error envelope.
+- Swagger/OpenAPI documentation and an **optional** demo UI at `/` (static HTML, not required to use the API).
+- Redis AOF persistence so messages survive application and Redis restarts.
+- 62 automated tests (unit + MockMvc + real-Redis integration + end-to-end SSE).
+
+### The demo UI is optional
+
+Nothing in the service depends on `static/index.html`. All four required endpoints — and the
+SSE stream — are plain HTTP and can be exercised with Postman, Newman, curl or Swagger UI.
+The UI only demonstrates live delivery in a browser; the Postman collection executes the whole
+flow against the REST API alone (14 requests / 34 assertions, no browser involved). You can
+delete `static/index.html` and the API behaves identically.
+
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Language / runtime | Java 21 |
+| Framework | Spring Boot 3.2.2 (Web MVC, Validation, Actuator) |
+| Redis access | Spring Data Redis (Lettuce), `RedisTemplate<String, Object>` |
+| Serialization | Jackson, `GenericJackson2JsonRedisSerializer` with restricted default typing |
+| Real-time | Server-Sent Events (`SseEmitter`) fed by Redis Pub/Sub |
+| Docs | springdoc-openapi 2.3.0 (Swagger UI) |
+| Build | Maven 3.9 |
+| Tests | JUnit 5, Mockito, MockMvc, Testcontainers (Redis 7) |
+
+## Prerequisites
+
+- Java 21 and Maven 3.9+ (for local builds), **or** Docker Desktop only (Docker builds the app).
+- Redis 7 reachable at `localhost:6379` for local runs, or the Compose-managed Redis.
+- Ports `8080` (app) and `6379` (Redis) free.
+
+## Configuration
+
+`src/main/resources/application.yml`:
+
+```yaml
+spring:
+  data:
+    redis:
+      host: localhost      # overridden to "redis" inside Docker Compose
+      port: 6379
+      timeout: 2000ms
+
+app:
+  chat:
+    max-history-limit: 100      # messages kept per room (list trimming)
+    default-history-limit: 50   # used when ?limit is omitted
+    sse-timeout-ms: 1800000     # 30 min per SSE connection
+    sse-heartbeat-ms: 15000     # keep-alive comment interval
+
+springdoc:
+  api-docs:   { path: /api-docs }
+  swagger-ui: { path: /swagger-ui.html }
+```
+
+Every value can be overridden with an environment variable, e.g.
+`APP_CHAT_MAX_HISTORY_LIMIT=500` or `SPRING_DATA_REDIS_HOST=redis`.
+
+## Run with Docker Compose (recommended)
+
+```bash
+docker compose up -d --build      # build image + start redis and app
+docker compose ps                 # both containers, redis healthy
+docker compose logs -f app
+docker compose down               # stop (the redis_data volume is kept)
+docker compose down -v            # stop and delete chat history
+```
+
+The app waits for the Redis healthcheck (`depends_on: condition: service_healthy`) and is
+served at <http://localhost:8080>. Redis data is written to the `redis_data` volume with
+AOF enabled (`--appendonly yes`).
+
+## Run locally without Docker for the app
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine redis-server --appendonly yes
+mvn clean package
+java -jar target/chat-app-1.0.0.jar
+```
+
+## REST API
+
+Base path: `/api/chatapp/chatrooms`
+
+| Method | Path | Description | Success |
+|---|---|---|---|
+| POST | `/` | Create a room | 200 |
+| POST | `/{roomId}/join` | Join a room | 200 |
+| POST | `/{roomId}/messages` | Send a message | 200 |
+| GET | `/{roomId}/messages?limit=N` | Latest N messages, oldest first | 200 |
+| GET | `/{roomId}/stream` | SSE stream for the room | 200 `text/event-stream` |
+| DELETE | `/{roomId}` | Delete room, participants and history | 200 |
+
+`roomId` is the room name. It must start with a letter or digit and may contain letters,
+digits, spaces, `.`, `-` and `_` (max 64 chars). `limit` must be 1–100.
+
+### Create a room
+
+```bash
+curl -X POST http://localhost:8080/api/chatapp/chatrooms \
+  -H "Content-Type: application/json" \
+  -d '{"roomName": "general"}'
+```
+
+```json
+{"message":"Chat room 'general' created successfully.","roomId":"general","status":"success"}
+```
+
+Duplicate → `409 Conflict`:
+```json
+{"message":"Chat room 'general' already exists","status":"error","data":null}
+```
+
+### Join a room
+
+```bash
+curl -X POST http://localhost:8080/api/chatapp/chatrooms/general/join \
+  -H "Content-Type: application/json" \
+  -d '{"participant": "alice"}'
+```
+
+```json
+{"message":"User 'alice' joined chat room 'general'.","status":"success","data":null}
+```
+
+Unknown room → `404 Not Found`:
+```json
+{"message":"Chat room 'nope' not found","status":"error","data":null}
+```
+
+### Send a message
+
+```bash
+curl -X POST http://localhost:8080/api/chatapp/chatrooms/general/messages \
+  -H "Content-Type: application/json" \
+  -d '{"participant": "alice", "message": "Hello, everyone!"}'
+```
+
+```json
+{"message":"Message sent successfully.","status":"success","data":null}
+```
+
+Sending is also treated as joining, so the participant Set stays accurate even if the client
+skips `/join`. The message is persisted *before* it is published, so a subscriber that
+immediately reads history always sees it.
+
+### Get history
+
+```bash
+curl "http://localhost:8080/api/chatapp/chatrooms/general/messages?limit=2"
+```
+
+```json
+{
+  "messages": [
+    {"participant":"alice","message":"first","timestamp":"2026-10-21T14:32:58.285882673Z"},
+    {"participant":"bob","message":"second","timestamp":"2026-10-21T14:32:58.402815936Z"}
+  ]
+}
+```
+
+- `limit=1` returns only the newest message.
+- Results are always chronological (oldest first).
+- `limit` defaults to `app.chat.default-history-limit` (50).
+- `limit` of `0`, a negative number, `>100` or a non-number → `400`.
+- Empty room → `{"messages": []}`; unknown room → `404`.
+
+### Delete a room
+
+```bash
+curl -X DELETE http://localhost:8080/api/chatapp/chatrooms/general
+```
+
+Removes the metadata hash, participants set and message list in one `DEL`. Unknown room → `404`.
+
+### Real-time subscription (SSE)
+
+**Endpoint:** `GET /api/chatapp/chatrooms/{roomId}/stream` — optional; REST clients that only
+need send/history can ignore it entirely.
+
+```bash
+curl -N -H "Accept: text/event-stream" \
+  http://localhost:8080/api/chatapp/chatrooms/general/stream
+```
+
+Frame sequence:
+
+```
+event:connected
+retry:3000
+data:{"roomId":"general"}
+
+:keep-alive
+
+id:7dc0a766-4ec7-43ce-b608-82087cab2158
+event:message
+data:{"participant":"alice","message":"Hi!","timestamp":"2026-10-21T14:33:20.544412568Z"}
+```
+
+In a browser:
+
+```js
+const es = new EventSource("/api/chatapp/chatrooms/general/stream");
+es.addEventListener("message", (e) => console.log(JSON.parse(e.data)));
+es.addEventListener("connected", () => console.log("live"));
+```
+
+How a REST message reaches a connected client:
+
+1. `POST /api/chatapp/chatrooms/{roomId}/messages` validates the body and calls
+   `ChatRoomService.sendMessage`.
+2. The service appends the message to the Redis List `chat:room:{roomId}:messages`
+   (`RPUSH`, then `LTRIM`) — persistence happens first.
+3. It publishes the same `ChatMessage` JSON on the Redis Pub/Sub channel
+   `chat:room:{roomId}:messages` (`PUBLISH`).
+4. The application's single `RedisMessageListenerContainer` — subscribed to
+   `chat:room:*:messages` — invokes `ChatMessageListener`, which reads the room id from the
+   channel name and calls `RealtimeService.broadcast(roomId, message)`.
+5. `RealtimeService` keeps an `SseEmitter` per connected client grouped by room id, and writes
+   one `event: message` frame to every emitter registered for that room, and none for other
+   rooms.
+
+The HTTP request that sends a message never writes to an emitter itself: the only producer
+for SSE is the Redis listener, so each subscriber receives the message once and only through
+Pub/Sub.
+
+Behaviour:
+
+- Only clients subscribed to the *same* room receive a message.
+- Delivery path is single: the sender never writes to clients directly; only
+  `ChatMessageListener` (fed by Redis Pub/Sub) calls the SSE registry, so no duplicates.
+- `:keep-alive` comments every 15 s keep proxies from closing idle connections.
+- Connections close on server shutdown; dead clients are removed on the next failed write.
+- Unknown room → `404` (delivered as an `event: error` frame because the client asked for
+  `text/event-stream`).
+
+### Error envelope
+
+```json
+{"message":"...","status":"error","data":null}
+```
+
+| Status | When |
+|---|---|
+| 400 | validation failure, malformed JSON, invalid `limit`, invalid room id |
+| 404 | unknown room / unknown resource |
+| 405 | unsupported HTTP method |
+| 409 | duplicate room |
+| 415 | wrong `Content-Type` |
+| 500 | unexpected server error |
+
+## Redis data structures
+
+All keys are built in one place: `com.freightfox.chatapp.redis.RedisKeys`.
+
+| Key / channel | Type | Contents |
+|---|---|---|
+| `chat:room:{id}:metadata` | Hash | `name`, `createdAt` (ISO instant) |
+| `chat:room:{id}:participants` | Set | participant names |
+| `chat:room:{id}:messages` | List | `ChatMessage` JSON, append at tail, trimmed to max |
+| `chat:room:{id}:messages` | Pub/Sub channel | published `ChatMessage` for real-time |
+
+Inspect from a shell:
+
+```bash
+docker exec -it freightfox-redis-1 redis-cli HGETALL chat:room:general:metadata
+docker exec -it freightfox-redis-1 redis-cli SMEMBERS chat:room:general:participants
+docker exec -it freightfox-redis-1 redis-cli LRANGE chat:room:general:messages 0 -1
+docker exec -it freightfox-redis-1 redis-cli SUBSCRIBE chat:room:general:messages
+```
+
+## Tests
+
+```bash
+mvn test
+```
+
+62 tests, all executed and passing:
+
+| Class | Kind | Covers |
+|---|---|---|
+| `ChatRoomServiceTest` (14) | Spring + real Redis | create, duplicate, concurrent create, join/leave, send + persistence, ordering, limit clamping, trimming, deletion, key cleanup |
+| `ChatControllerTest` (22) | `@WebMvcTest` + Mockito | status codes, validation, malformed JSON, limit bounds, SSE endpoint wiring |
+| `ChatIntegrationTest` (12) | HTTP + real Redis | all endpoints, 409/404/400, history ordering, ISO timestamps, SSE delivery and room isolation |
+| `RealtimeServiceTest` (8) | unit | per-room fan-out, isolation, dead-subscriber cleanup, heartbeats |
+| `ChatMessageListenerTest` (4) | unit | channel → room mapping, wrong payload, deserialization failure |
+| `PubSubServiceTest` (1) | unit | publishes to `chat:room:{id}:messages` |
+| `ChatApplicationTests` (1) | Spring context | context loads with Redis |
+
+Integration tests normally start their own Redis through Testcontainers:
+
+```bash
+# requires a Docker daemon visible to Testcontainers
+mvn test
+```
+
+If Testcontainers cannot use the Docker socket (for example a Docker Desktop build whose
+socket proxy rejects older API versions), point the tests at an already running Redis
+instead — no mocks, still a real server:
+
+```bash
+docker run -d --name freightfox-test-redis --network freightfox_default redis:7-alpine \
+  redis-server --save "" --appendonly no
+docker run --rm --network freightfox_default \
+  -v "$PWD:/workspace" -w /workspace \
+  -e TEST_REDIS_HOST=freightfox-test-redis -e TEST_REDIS_PORT=6379 \
+  maven:3.9.6-eclipse-temurin-21 mvn -B test
+```
+
+The suite flushes only the Redis it is given (a dedicated test container in the command above),
+so it never touches the application's data.
+
+## API documentation
+
+- Swagger UI: <http://localhost:8080/swagger-ui.html>
+- OpenAPI JSON: <http://localhost:8080/api-docs>
+- Demo UI: <http://localhost:8080/> (SSE-based, no polling)
+- Postman collection: [`postman/Freightfox-Chat.postman_collection.json`](postman/Freightfox-Chat.postman_collection.json)
+
+Run the collection headlessly:
+
+```bash
+docker run --rm --network freightfox_default \
+  -v "$PWD/postman:/etc/newman" postman/newman \
+  run /etc/newman/Freightfox-Chat.postman_collection.json \
+  --env-var baseUrl=http://freightfox-app-1:8080
+```
+
+Expected result: 14 requests, 34 assertions, 0 failures.
+
+## Health check
+
+```bash
+curl http://localhost:8080/actuator/health
+```
+
+```json
+{"status":"UP","components":{"redis":{"status":"UP","details":{"version":"7.4.11"}}}}
+```
+
+## Project layout
+
+```
+src/main/java/com/freightfox/chatapp
+├── config/       RedisConfig, PubSubConfig, OpenApiConfig
+├── controller/   ChatController (REST + SSE)
+├── exception/    GlobalExceptionHandler, RoomNotFoundException, RoomAlreadyExistsException
+├── listener/     ChatMessageListener (Redis Pub/Sub → SSE)
+├── model/        ChatMessage, request/response DTOs, ValidationRules
+├── redis/        RedisKeys (key/channel naming)
+├── service/      ChatRoomService, PubSubService, RealtimeService
+└── ChatApplication.java
+
+src/main/resources
+├── application.yml
+└── static/index.html        demo UI
+
+src/test/java/com/freightfox/chatapp
+├── controller/ integration/ listener/ service/ support/
+```
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| App container restarts, logs `Connection refused` | Redis is not healthy yet; `docker compose ps`, then `docker compose logs redis` |
+| `GET /actuator/health` shows `redis: DOWN` | Wrong host/port; inside Compose use `SPRING_DATA_REDIS_HOST=redis` |
+| SSE connects but no messages arrive | Check the room id; publish a message and watch `docker compose logs -f app` for `Delivered message ... to room ...` |
+| Messages disappear after a restart | AOF disabled or volume removed (`docker compose down -v`); check `docker exec freightfox-redis-1 ls /data/appendonlydir` |
+| `curl` sends invalid JSON on Windows PowerShell | PowerShell strips inner quotes for native commands; use a JSON file or `Invoke-RestMethod` |
+| `mvn test` fails to find Docker | Use the `TEST_REDIS_HOST` variant shown above |
+| Swagger UI empty | Open `/swagger-ui.html` (the JSON is at `/api-docs`) |
+
+## Design decisions and limitations
+
+These are deliberate scope decisions for this assignment, not defects. They are listed here
+so reviewers can judge them explicitly.
+
+1. **No authentication or authorization.** Any caller that can reach the API can create or
+   delete rooms and post under any participant name; `participant` comes from the request
+   body. The assignment did not ask for auth. A production build would add Spring Security,
+   derive identity from the authenticated principal instead of the request body, and add rate
+   limiting and TLS termination.
+2. **The SSE registry is per application instance.** `RealtimeService` stores emitters in
+   memory, so an instance writes only to the clients connected to that instance. Redis Pub/Sub
+   is still shared: every instance receives every published message. The delivered
+   single-container Compose deployment is unaffected. Horizontal scaling would need sticky
+   sessions or a shared relay (e.g. STOMP with a Redis-backed broker); alternatively clients
+   reconnect and resynchronise history through the REST endpoint.
+3. **Posting implicitly joins the sender.** `sendMessage` runs `SADD` on the room's
+   participants Set before storing the message. This keeps membership accurate without
+   returning `403` to clients that send before calling `/join`, and preserves the required API
+   flow. Explicit `POST /join` is still supported. The consequence is that `participant` is a
+   self-declared presence marker, not an authorization decision.
+4. **No room or participant listing endpoint.** `SMEMBERS` / `KEYS` remain available through
+   `redis-cli`; listing was not required by the assignment.
+5. **`allkeys-lru` with 256 MB** may evict data under memory pressure; acceptable for this
+   assignment and documented in `docker-compose.yml`.
+
+Jackson default typing for Redis payloads is restricted to `com.freightfox.chatapp.model.*`
+plus JDK collection/time types to avoid unsafe polymorphic deserialization.

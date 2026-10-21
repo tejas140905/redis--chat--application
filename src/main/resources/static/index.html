@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Freightfox Chat</title>
+<style>
+  :root {
+    --bg: #0d1017;
+    --panel: #151a23;
+    --panel-2: #1b2230;
+    --line: #242c3d;
+    --text: #e6ebf5;
+    --muted: #8b97ad;
+    --accent: #4f8cff;
+    --accent-2: #22c55e;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 15% -10%, #16233b 0%, var(--bg) 55%);
+    color: var(--text);
+    font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app {
+    width: min(1080px, 100%);
+    height: min(720px, calc(100vh - 48px));
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  }
+  aside {
+    background: var(--panel-2);
+    border-right: 1px solid var(--line);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), #7c5cff);
+    display: grid; place-items: center; font-size: 18px;
+  }
+  .brand h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  .brand span { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+
+  label { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  input {
+    width: 100%; margin-top: 6px; padding: 10px 12px;
+    background: #10151e; border: 1px solid var(--line); border-radius: 10px;
+    color: var(--text); font-size: 14px; outline: none;
+  }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 255, .15); }
+
+  button {
+    border: 0; border-radius: 10px; padding: 10px 14px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; transition: filter .15s;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  button.ghost:hover { color: var(--text); }
+
+  .field { display: block; }
+  .status {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--muted);
+    background: #10151e; border: 1px solid var(--line);
+    padding: 9px 12px; border-radius: 10px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  .dot.on { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+  .spacer { flex: 1; }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .hint code { background: #10151e; padding: 1px 5px; border-radius: 4px; color: #9fb7e8; }
+
+  main { display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 22px; border-bottom: 1px solid var(--line);
+  }
+  .topbar .room { font-weight: 600; }
+  .topbar .sub { font-size: 12px; color: var(--muted); }
+  .live {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; letter-spacing: .8px; font-weight: 700; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px;
+  }
+  .live.on { color: var(--accent-2); border-color: rgba(34, 197, 94, .45); }
+  .live .dot { width: 7px; height: 7px; }
+
+  #messages {
+    flex: 1; overflow-y: auto; padding: 22px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .empty { margin: auto; text-align: center; color: var(--muted); font-size: 13px; }
+  .empty .big { font-size: 34px; margin-bottom: 8px; }
+
+  .msg { display: flex; gap: 10px; max-width: 78%; animation: pop .18s ease; }
+  @keyframes pop { from { transform: translateY(4px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .msg.mine { align-self: flex-end; flex-direction: row-reverse; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px;
+    display: grid; place-items: center; font-size: 13px; font-weight: 700;
+    background: #2a3550; color: #b9c9ee;
+  }
+  .msg.mine .avatar { background: #23407a; color: #cfe0ff; }
+  .bubble {
+    background: var(--panel-2); border: 1px solid var(--line);
+    padding: 9px 13px; border-radius: 12px;
+  }
+  .msg.mine .bubble { background: #1d3a70; border-color: #2a4c8f; }
+  .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .msg.mine .meta { text-align: right; }
+
+  .composer {
+    display: flex; gap: 10px; padding: 16px 22px;
+    border-top: 1px solid var(--line); background: #121722;
+  }
+  .composer input { margin: 0; flex: 1; }
+
+  .toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translate(-50%, 80px);
+    background: #2a1a1e; border: 1px solid #5a2b33; color: #ffb4b4;
+    padding: 11px 16px; border-radius: 10px; font-size: 13px;
+    opacity: 0; transition: all .25s ease; pointer-events: none; z-index: 10;
+  }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+  @media (max-width: 760px) {
+    body { padding: 0; }
+    .app { grid-template-columns: 1fr; height: 100vh; border-radius: 0; border: 0; }
+    aside { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <div class="logo">💬</div>
+      <div>
+        <h1>Freightfox Chat</h1>
+        <span>Redis-backed rooms</span>
+      </div>
+    </div>
+
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="statusText">Connecting…</span>
+    </div>
+
+    <label class="field">Room
+      <input id="roomInput" value="general" placeholder="e.g. general" autocomplete="off" />
+    </label>
+
+    <label class="field">Your name
+      <input id="nameInput" placeholder="e.g. alice" autocomplete="off" />
+    </label>
+
+    <button id="joinBtn">Join room</button>
+    <button id="leaveBtn" class="ghost">Leave</button>
+
+    <div class="spacer"></div>
+
+    <div class="hint">
+      REST API on <code>/api/chatapp</code><br />
+      Live delivery: SSE <code>/stream</code><br />
+      Swagger UI: <a style="color:#7ea8ff" href="/swagger-ui.html" target="_blank">/swagger-ui.html</a>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div>
+        <div class="room" id="roomTitle">No room joined</div>
+        <div class="sub" id="roomSub">Enter a room and your name to start chatting</div>
+      </div>
+      <div class="live" id="liveBadge"><span class="dot"></span><span id="liveText">OFFLINE</span></div>
+    </div>
+
+    <div id="messages">
+      <div class="empty">
+        <div class="big">💬</div>
+        Join a room to see the conversation.<br />
+        History is stored in Redis, so it survives restarts.
+      </div>
+    </div>
+
+    <form class="composer" id="composer">
+      <input id="messageInput" placeholder="Type a message…" autocomplete="off" disabled />
+      <button id="sendBtn" type="submit" disabled>Send</button>
+    </form>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const API = "/api/chatapp/chatrooms";
+  const el = (id) => document.getElementById(id);
+  const state = { room: null, me: null, es: null, messages: [], seen: new Set() };
+
+  function toast(msg) {
+    const t = el("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 3500);
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(API + path, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+    let body = null;
+    try { body = await res.json(); } catch { /* no body */ }
+    if (!res.ok || (body && body.status === "error")) {
+      throw new Error((body && body.message) || `Request failed (${res.status})`);
+    }
+    return body;
+  }
+
+  function setOnline(on) {
+    el("dot").classList.toggle("on", on);
+    el("statusText").textContent = on ? "Connected · Redis UP" : "Disconnected";
+  }
+
+  function setLive(on) {
+    el("liveBadge").classList.toggle("on", on);
+    el("liveText").textContent = on ? "LIVE" : "OFFLINE";
+  }
+
+  function initials(name) {
+    return (name || "?").trim().slice(0, 2).toUpperCase();
+  }
+
+  function timeOf(ts) {
+    const d = new Date(ts);
+    return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  const keyOf = (m) => `${m.timestamp}|${m.participant}|${m.message}`;
+
+  function messageHtml(m) {
+    const mine = m.participant === state.me;
+    return `<div class="msg${mine ? " mine" : ""}">
+      <div class="avatar">${initials(m.participant)}</div>
+      <div>
+        <div class="meta">${escapeHtml(m.participant)} · ${timeOf(m.timestamp)}</div>
+        <div class="bubble">${escapeHtml(m.message)}</div>
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    const box = el("messages");
+    if (!state.messages.length) {
+      box.innerHTML = '<div class="empty"><div class="big">💬</div>No messages yet. Say hello!</div>';
+      return;
+    }
+    box.innerHTML = state.messages.map(messageHtml).join("");
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function addMessage(m) {
+    const key = keyOf(m);
+    if (state.seen.has(key)) return;
+    state.seen.add(key);
+    state.messages.push(m);
+    state.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    render();
+  }
+
+  async function loadHistory() {
+    if (!state.room) return;
+    const data = await api(`/${encodeURIComponent(state.room)}/messages?limit=100`);
+    const merged = new Map();
+    [...state.messages, ...(data.messages || [])].forEach((m) => merged.set(keyOf(m), m));
+    state.messages = [...merged.values()].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    state.seen = new Set(merged.keys());
+    render();
+  }
+
+  function disconnectStream() {
+    if (state.es) {
+      state.es.close();
+      state.es = null;
+    }
+    setLive(false);
+  }
+
+  // Real-time delivery: one SSE connection per room. EventSource reconnects on its own;
+  // on every (re)connect we resynchronise history to fill any gap, then live events append.
+  function connectStream() {
+    disconnectStream();
+    const es = new EventSource(`${API}/${encodeURIComponent(state.room)}/stream`);
+    state.es = es;
+
+    es.addEventListener("connected", () => setLive(true));
+    es.addEventListener("message", (e) => {
+      try { addMessage(JSON.parse(e.data)); } catch { /* ignore malformed frame */ }
+    });
+    es.onopen = () => {
+      setLive(true);
+      loadHistory().catch(() => {});
+    };
+    es.onerror = () => {
+      setLive(false);
+      el("statusText").textContent = "Reconnecting…";
+    };
+  }
+
+  async function join() {
+    const room = el("roomInput").value.trim();
+    const me = el("nameInput").value.trim();
+    if (!room || !me) return toast("Room and name are required");
+
+    el("joinBtn").disabled = true;
+    try {
+      try {
+        await api("", { method: "POST", body: JSON.stringify({ roomName: room }) });
+      } catch (e) {
+        if (!/already exists/i.test(e.message)) throw e;
+      }
+      await api(`/${encodeURIComponent(room)}/join`, {
+        method: "POST",
+        body: JSON.stringify({ participant: me }),
+      });
+
+      state.room = room;
+      state.me = me;
+      state.messages = [];
+      state.seen = new Set();
+      el("roomTitle").textContent = "# " + room;
+      el("roomSub").textContent = "You are " + me;
+      el("messageInput").disabled = false;
+      el("sendBtn").disabled = false;
+      el("messageInput").focus();
+      setOnline(true);
+
+      await loadHistory();
+      connectStream();
+    } catch (e) {
+      toast(e.message);
+      setOnline(false);
+    } finally {
+      el("joinBtn").disabled = false;
+    }
+  }
+
+  function leave() {
+    disconnectStream();
+    state.room = null;
+    state.me = null;
+    state.messages = [];
+    state.seen = new Set();
+    el("roomTitle").textContent = "No room joined";
+    el("roomSub").textContent = "Enter a room and your name to start chatting";
+    el("messages").innerHTML = '<div class="empty"><div class="big">💬</div>Join a room to see the conversation.</div>';
+    el("messageInput").disabled = true;
+    el("sendBtn").disabled = true;
+    el("messageInput").value = "";
+  }
+
+  el("joinBtn").addEventListener("click", join);
+  el("leaveBtn").addEventListener("click", leave);
+  el("roomInput").addEventListener("keydown", (e) => { if (e.key === "Enter") el("nameInput").focus(); });
+  el("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+
+  el("composer").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = el("messageInput").value.trim();
+    if (!text || !state.room) return;
+    el("messageInput").value = "";
+    try {
+      await api(`/${encodeURIComponent(state.room)}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ participant: state.me, message: text }),
+      });
+      // Normally the SSE event echoes this back. If the stream is down, refresh once.
+      if (!state.es || state.es.readyState !== EventSource.OPEN) {
+        await loadHistory();
+      }
+    } catch (err) {
+      toast(err.message);
+      el("messageInput").value = text;
+    }
+  });
+
+  fetch("/actuator/health")
+    .then((r) => r.json())
+    .then((h) => {
+      setOnline(h.status === "UP");
+      if (h.components && h.components.redis) {
+        el("statusText").textContent = "Connected · Redis " + h.components.redis.details.version;
+      }
+    })
+    .catch(() => setOnline(false));
+
+  window.addEventListener("beforeunload", () => disconnectStream());
+</script>
+</body>
+</html>
