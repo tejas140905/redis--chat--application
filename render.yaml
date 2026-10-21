@@ -1,0 +1,69 @@
+# Render Blueprint - infrastructure as code for https://render.com
+#
+# Deploy: Render Dashboard -> New + -> Blueprint -> pick this repository.
+# Render reads this file from the repo root and provisions both resources below.
+#
+# Free-tier notes (see https://render.com/docs/free):
+#   * The web service sleeps after 15 minutes without traffic; the next request
+#     takes ~30-60s to wake it. Open the URL once before a demo.
+#   * Render Key Value free instances are 25 MB, internal-only and do NOT persist
+#     data across restarts. Chat history is lost on redeploy - fine for a demo.
+#   * Free web services get 750 instance-hours per workspace per month.
+
+services:
+  # ---------------------------------------------------------------------------
+  # The Spring Boot API, built from the repo's own Dockerfile.
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: freightfox-chat
+    runtime: docker
+    plan: free
+    # Keep this IDENTICAL to the keyvalue region below, otherwise the private
+    # network connection between them will not resolve. Change both together
+    # (e.g. to "singapore" for lower latency from India).
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    # The image is built with -DskipTests, so a broken test cannot block deploys.
+    # CI (or a local `mvn test`) is responsible for the suite.
+    autoDeployTrigger: commit
+    envVars:
+      # Render Key Value exposes a private-network connection string such as
+      # redis://red-xxxxxxxxxxxx:6379. Spring Boot maps SPRING_DATA_REDIS_URL to
+      # spring.data.redis.url, which takes precedence over the localhost default.
+      - key: SPRING_DATA_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: freightfox-redis
+          property: connectionString
+
+      # --- Public surface hardening -----------------------------------------
+      # Locally, /actuator/health shows Redis/disk details, which is useful.
+      # With a public URL those internals should not be advertised.
+      - key: MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS
+        value: never
+      - key: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+        value: health,info
+
+      # DEBUG logging is helpful locally but noisy and costly in a hosted demo.
+      - key: LOGGING_LEVEL_COM_FREIGHTFOX_CHATAPP
+        value: INFO
+      - key: LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_DATA_REDIS
+        value: INFO
+
+  # ---------------------------------------------------------------------------
+  # Redis-compatible store for chat history, membership and Pub/Sub fan-out.
+  # ---------------------------------------------------------------------------
+  - type: keyvalue
+    name: freightfox-redis
+    plan: free
+    region: oregon
+    # Required field. An empty list means "private network only", which is what
+    # we want: the API reaches it internally and it is never exposed publicly.
+    ipAllowList: []
+    # Matches the eviction policy used by docker-compose.yml. Chat history is the
+    # only Redis data, so evicting the least recently used key is acceptable once
+    # the 25 MB free-tier ceiling is reached.
+    maxmemoryPolicy: allkeys-lru
+    # Persistence is unavailable on free instances (Render defaults it to off).
+    persistenceMode: 'off'

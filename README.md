@@ -360,6 +360,50 @@ curl http://localhost:8080/actuator/health
 {"status":"UP","components":{"redis":{"status":"UP","details":{"version":"7.4.11"}}}}
 ```
 
+## Deploy to Render (public URL)
+
+The repository ships a [`render.yaml`](render.yaml) Blueprint that provisions the API
+together with a Redis-compatible Render Key Value instance.
+
+1. Render Dashboard → **New +** → **Blueprint**.
+2. Select this repository. Render reads `render.yaml` and shows both resources.
+3. Click **Apply** and wait for the first build (~4–5 minutes; Maven downloads its
+   dependencies inside the Docker build).
+4. The API is then live at `https://<service-name>.onrender.com`.
+
+What the Blueprint sets up:
+
+| Setting | Value |
+| --- | --- |
+| Web service | `runtime: docker`, built from `./Dockerfile`, `plan: free` |
+| Health check | `GET /actuator/health` |
+| Redis wiring | `SPRING_DATA_REDIS_URL` ← the Key Value instance's private `connectionString` |
+| Actuator | `health,info` only, and health details suppressed |
+| Logging | `INFO` for the app and for Spring Data Redis |
+
+`application.yml` reads `${PORT:8080}`, so the app binds whatever port the platform
+assigns (Render's default is `10000`) while still running on `8080` locally.
+
+Verify a deployment:
+
+```bash
+curl https://<service-name>.onrender.com/actuator/health
+# {"status":"UP"}   <- no component details: that is the hardening working
+```
+
+### Free-tier caveats
+
+- **The service sleeps after 15 minutes** without traffic, and the next request takes
+  roughly 30–60 seconds to wake it. Open the URL once before a demo.
+- **The Key Value instance is 25 MB and does not persist data.** Chat rooms and history
+  are lost on restart or redeploy. Acceptable for a demo, not for real use.
+- **750 instance-hours per workspace per month.** A slept service does not consume them.
+- `region: oregon` is set on **both** resources and they must match, or the private
+  network lookup fails. Change both together (e.g. to `singapore`) for lower latency
+  from India.
+- A single instance is used. Horizontal scaling would break SSE fan-out without sticky
+  sessions — see *Design decisions and limitations*.
+
 ## Project layout
 
 ```

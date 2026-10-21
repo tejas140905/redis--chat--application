@@ -1,11 +1,16 @@
 server:
-  port: 8080
+  # Port 8080 locally and under Docker Compose; Render and other PaaS platforms
+  # inject PORT (Render's default is 10000), so honour it when present.
+  port: ${PORT:8080}
 
 spring:
   application:
     name: chat-app
   data:
     redis:
+      # Local default. Overridden by SPRING_DATA_REDIS_HOST / _PORT (Compose sets the
+      # host to "redis"). When SPRING_DATA_REDIS_URL is set, Spring ignores host/port
+      # and uses the URL instead - that is how Render Key Value is wired in render.yaml.
       host: localhost
       port: 6379
       timeout: 2000ms
