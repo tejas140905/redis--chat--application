@@ -372,6 +372,10 @@ Tests run: 62, Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
+Re-verified after the deployment-configuration cleanup (port binding, production profile
+and documentation only; no application or test logic changed): the same 62 tests passed
+with 0 failures, 0 errors and 0 skipped.
+
 | Class | Tests | Result | Time |
 |---|---|---|---|
 | `ChatApplicationTests` | 1 | pass | 22.5 s (context + Redis) |
@@ -493,7 +497,29 @@ in `/data/appendonlydir` on the volume. Recreating containers (`docker compose d
 ### 9.3 Health
 
 `GET /actuator/health` returns `UP` with `components.redis.status = UP` and Redis version
-`7.4.11`; the demo UI displays the same status.
+`7.4.11`; the demo UI displays the same status. This verbose detail is intentional for the
+local/default profile.
+
+### 9.4 Render deployment readiness
+
+The repository includes a Render Blueprint and the production settings it activates:
+
+- `render.yaml` provisions the Docker web service and a private Render Key Value instance.
+  The web service receives `SPRING_DATA_REDIS_URL` from the Key Value
+  `connectionString`, so no Redis credentials are stored in the repository.
+- `SPRING_PROFILES_ACTIVE=prod` loads `application-prod.yml`, which exposes only
+  `health` and `info`, sets `show-details: never`, and lowers application/Redis logging
+  to `INFO`.
+- `application.yml` honours the platform-injected `PORT` (`${PORT:8080}`) and binds
+  `0.0.0.0`; the Docker health check uses `/actuator/health`.
+- `.env.example` documents the Compose variables and the production variable names
+  without containing any secret values.
+- `.dockerignore` keeps `.git`, `target`, local environment files and documentation out
+  of the Docker build context.
+
+No public Render deployment was performed as part of this repository audit, so no live
+URL is claimed. The Blueprint follows the documented Render schema; deployment must be
+verified in the target Render account.
 
 ---
 
@@ -521,12 +547,18 @@ in `/data/appendonlydir` on the volume. Recreating containers (`docker compose d
 ## 11. Configuration reference
 
 ```yaml
+server.port: ${PORT:8080}             # platform-injected port, 8080 locally
+server.address: 0.0.0.0               # reachable inside Docker/Render
 app.chat.max-history-limit: 100       # messages kept per room
 app.chat.default-history-limit: 50    # limit used when ?limit is omitted
 app.chat.sse-timeout-ms: 1800000      # 30 minutes per SSE connection
 app.chat.sse-heartbeat-ms: 15000      # keep-alive comment interval
 spring.data.redis.host / port         # localhost:6379, "redis:6379" in Compose
+spring.data.redis.url                 # set by Render from Key Value connectionString
 ```
+
+`application-prod.yml` is activated with `SPRING_PROFILES_ACTIVE=prod` and restricts the
+public Actuator surface to `health,info` with hidden details.
 
 Redis persistence is controlled by the Redis command line in `docker-compose.yml`; the app
 does not manage it.
@@ -621,8 +653,11 @@ docker run --rm --network freightfox_default \
 
 ```
 .
+├── .dockerignore                  Docker build-context exclusions
+├── .env.example                   safe Compose variable template
 ├── Dockerfile                     multi-stage build (Maven → JRE 21 alpine)
 ├── docker-compose.yml             app + redis, healthcheck, AOF volume, restart policy
+├── render.yaml                    Render Blueprint (web service + private Key Value)
 ├── pom.xml                        Spring Boot 3.2.2, springdoc 2.3.0, Testcontainers 1.21.3
 ├── README.md
 ├── REPORT.md
@@ -641,6 +676,7 @@ docker run --rm --network freightfox_default \
     │   └── ChatApplication.java
     ├── main/resources
     │   ├── application.yml
+    │   ├── application-prod.yml  public-surface hardening
     │   └── static/index.html      SSE demo UI
     └── test/java/com/freightfox/chatapp
         ├── controller/ChatControllerTest.java
@@ -735,4 +771,17 @@ docker run --rm --network freightfox_default \
 - `@EnableRedisRepositories` (no Redis repositories exist; it broke `@WebMvcTest` slices)
 - Unused `PubSubService.getRoomChannel`
 
-No unrelated Docker containers, volumes or images were modified.
+**Deployment-readiness additions (audit)**
+
+- `.env.example` — non-secret template for Docker Compose variables.
+- `render.yaml` — Render web service plus private Key Value instance.
+- `src/main/resources/application-prod.yml` — hardened production profile.
+- `.dockerignore` — excludes Git metadata, build output and local environment files from
+  the Docker build context.
+- `application.yml` — honours `${PORT:8080}` and binds `0.0.0.0`.
+- `docker-compose.yml` — Redis host/port are overridable through `.env`, defaulting to the
+  `redis` service.
+- `README.md` / `REPORT.md` — Render deployment and environment documentation.
+
+No application, test or API logic was changed by this cleanup, and no unrelated Docker
+containers, volumes or images were modified.

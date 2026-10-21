@@ -1,0 +1,18 @@
+# Production profile, activated on Render with SPRING_PROFILES_ACTIVE=prod.
+#
+# Keep the public actuator surface small and do not advertise Redis versions,
+# heap usage or disk paths on the internet. The default profile intentionally
+# stays verbose for local development and debugging.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    com.freightfox.chatapp: INFO
+    org.springframework.data.redis: INFO

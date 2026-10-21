@@ -1,0 +1,18 @@
+# Keep the Docker build context small and free of local secrets.
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+target
+build
+out
+*.log
+.env
+.env.*
+!.env.example
+docker-compose*.yml
+README.md
+REPORT.md
+postman
+render.yaml

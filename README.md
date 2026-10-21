@@ -56,6 +56,10 @@ delete `static/index.html` and the API behaves identically.
 `src/main/resources/application.yml`:
 
 ```yaml
+server:
+  port: ${PORT:8080}       # Render and other PaaS platforms inject PORT
+  address: 0.0.0.0         # reachable from outside the container
+
 spring:
   data:
     redis:
@@ -78,6 +82,11 @@ springdoc:
 Every value can be overridden with an environment variable, e.g.
 `APP_CHAT_MAX_HISTORY_LIMIT=500` or `SPRING_DATA_REDIS_HOST=redis`.
 
+`application-prod.yml` is the hardened profile used in production
+(`SPRING_PROFILES_ACTIVE=prod`): only the `health` and `info` Actuator endpoints are
+exposed, health details are hidden, and application/Redis logging is set to `INFO`.
+Render activates this profile in `render.yaml`; local runs keep the default profile.
+
 ## Run with Docker Compose (recommended)
 
 ```bash
@@ -91,6 +100,11 @@ docker compose down -v            # stop and delete chat history
 The app waits for the Redis healthcheck (`depends_on: condition: service_healthy`) and is
 served at <http://localhost:8080>. Redis data is written to the `redis_data` volume with
 AOF enabled (`--appendonly yes`).
+
+To override the Redis host or port, copy the safe template first:
+`cp .env.example .env` (Git Bash/macOS/Linux) or
+`Copy-Item .env.example .env` (PowerShell). Compose reads `.env` automatically from this
+directory, and Git ignores it. Without a `.env`, the defaults (`redis:6379`) are used.
 
 ## Run locally without Docker for the app
 
@@ -378,13 +392,16 @@ What the Blueprint sets up:
 | Web service | `runtime: docker`, built from `./Dockerfile`, `plan: free` |
 | Health check | `GET /actuator/health` |
 | Redis wiring | `SPRING_DATA_REDIS_URL` ← the Key Value instance's private `connectionString` |
+| Production profile | `SPRING_PROFILES_ACTIVE=prod` → `application-prod.yml` |
 | Actuator | `health,info` only, and health details suppressed |
 | Logging | `INFO` for the app and for Spring Data Redis |
 
-`application.yml` reads `${PORT:8080}`, so the app binds whatever port the platform
-assigns (Render's default is `10000`) while still running on `8080` locally.
+`application.yml` reads `${PORT:8080}` and binds `0.0.0.0`, so the app accepts whatever
+port the platform assigns (Render's default is `10000`) while still running on `8080`
+locally.
 
-Verify a deployment:
+A public URL is created in your Render account by the steps above; this repository does
+not claim that a deployment has already been performed. Verify your own deployment:
 
 ```bash
 curl https://<service-name>.onrender.com/actuator/health
@@ -407,22 +424,34 @@ curl https://<service-name>.onrender.com/actuator/health
 ## Project layout
 
 ```
-src/main/java/com/freightfox/chatapp
-├── config/       RedisConfig, PubSubConfig, OpenApiConfig
-├── controller/   ChatController (REST + SSE)
-├── exception/    GlobalExceptionHandler, RoomNotFoundException, RoomAlreadyExistsException
-├── listener/     ChatMessageListener (Redis Pub/Sub → SSE)
-├── model/        ChatMessage, request/response DTOs, ValidationRules
-├── redis/        RedisKeys (key/channel naming)
-├── service/      ChatRoomService, PubSubService, RealtimeService
-└── ChatApplication.java
-
-src/main/resources
-├── application.yml
-└── static/index.html        demo UI
-
-src/test/java/com/freightfox/chatapp
-├── controller/ integration/ listener/ service/ support/
+.
+├── .dockerignore                 build-context exclusions
+├── .env.example                  safe local Compose template
+├── Dockerfile                    multi-stage Maven → JRE image
+├── docker-compose.yml            local app + Redis
+├── render.yaml                   Render Blueprint (web + Key Value)
+├── pom.xml
+├── README.md
+├── REPORT.md
+├── postman/
+│   └── Freightfox-Chat.postman_collection.json
+└── src
+    ├── main/java/com/freightfox/chatapp
+    │   ├── config/       RedisConfig, PubSubConfig, OpenApiConfig
+    │   ├── controller/   ChatController (REST + SSE)
+    │   ├── exception/    GlobalExceptionHandler, RoomNotFoundException, RoomAlreadyExistsException
+    │   ├── listener/     ChatMessageListener (Redis Pub/Sub → SSE)
+    │   ├── model/        ChatMessage, request/response DTOs, ValidationRules
+    │   ├── redis/        RedisKeys (key/channel naming)
+    │   ├── service/      ChatRoomService, PubSubService, RealtimeService
+    │   └── ChatApplication.java
+    ├── main/resources
+    │   ├── application.yml
+    │   ├── application-prod.yml  public-surface hardening
+    │   └── static/index.html     demo UI
+    └── test/java/com/freightfox/chatapp
+        ├── controller/ integration/ listener/ service/ support/
+        └── ChatApplicationTests.java
 ```
 
 ## Troubleshooting

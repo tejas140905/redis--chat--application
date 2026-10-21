@@ -37,19 +37,11 @@ services:
           name: freightfox-redis
           property: connectionString
 
-      # --- Public surface hardening -----------------------------------------
-      # Locally, /actuator/health shows Redis/disk details, which is useful.
-      # With a public URL those internals should not be advertised.
-      - key: MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS
-        value: never
-      - key: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
-        value: health,info
-
-      # DEBUG logging is helpful locally but noisy and costly in a hosted demo.
-      - key: LOGGING_LEVEL_COM_FREIGHTFOX_CHATAPP
-        value: INFO
-      - key: LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_DATA_REDIS
-        value: INFO
+      # Public-surface hardening lives in application-prod.yml: only health and
+      # info are exposed, health details are hidden, and logging drops to INFO.
+      # Keeping it in a profile avoids repeating the same settings as env vars.
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
 
   # ---------------------------------------------------------------------------
   # Redis-compatible store for chat history, membership and Pub/Sub fan-out.
