@@ -21,16 +21,15 @@ POST /messages ──► ChatRoomService ──RPUSH──► Redis List
 - Bean validation on every request field, consistent JSON error envelope.
 - Swagger/OpenAPI documentation and an **optional** demo UI at `/` (static HTML, not required to use the API).
 - Responsive demo UI: desktop sidebar, mobile/tablet drawer, safe-area aware, touch-sized controls.
-- Redis AOF persistence so messages survive application and Redis restarts.
+- Redis AOF persistence in local Docker runs, so messages survive restarts (Render's free Key Value is ephemeral — see *Free-tier caveats*).
 - 62 automated tests (unit + MockMvc + real-Redis integration + end-to-end SSE).
 
 ### The demo UI is optional
 
 Nothing in the service depends on `static/index.html`. All four required endpoints — and the
-SSE stream — are plain HTTP and can be exercised with Postman, Newman, curl or Swagger UI.
-The UI only demonstrates live delivery in a browser; the Postman collection executes the whole
-flow against the REST API alone (14 requests / 34 assertions, no browser involved). You can
-delete `static/index.html` and the API behaves identically.
+SSE stream — are plain HTTP and can be exercised with Postman, curl or Swagger UI.
+The UI only demonstrates live delivery in a browser. You can delete `static/index.html`
+and the API behaves identically.
 
 
 ## Tech stack
@@ -49,7 +48,7 @@ delete `static/index.html` and the API behaves identically.
 ## Prerequisites
 
 - Java 21 and Maven 3.9+ (for local builds), **or** Docker Desktop only (Docker builds the app).
-- Redis 7 reachable at `localhost:6379` for local runs, or the Compose-managed Redis.
+- Redis 7 reachable at `localhost:6379` for local runs, or the Redis container described below.
 - Ports `8080` (app) and `6379` (Redis) free.
 
 ## Configuration
@@ -64,7 +63,7 @@ server:
 spring:
   data:
     redis:
-      host: localhost      # overridden to "redis" inside Docker Compose
+      host: localhost      # overridden by SPRING_DATA_REDIS_URL / _HOST in containers
       port: 6379
       timeout: 2000ms
 
@@ -88,30 +87,35 @@ Every value can be overridden with an environment variable, e.g.
 exposed, health details are hidden, and application/Redis logging is set to `INFO`.
 Render activates this profile in `render.yaml`; local runs keep the default profile.
 
-## Run with Docker Compose (recommended)
+## Run with Docker (recommended)
 
 ```bash
-docker compose up -d --build      # build image + start redis and app
-docker compose ps                 # both containers, redis healthy
-docker compose logs -f app
-docker compose down               # stop (the redis_data volume is kept)
-docker compose down -v            # stop and delete chat history
+docker network create freightfox
+docker run -d --name freightfox-redis --network freightfox \
+  -v freightfox-redis-data:/data redis:7-alpine redis-server --appendonly yes
+
+docker build -t freightfox-chat .
+docker run -d --name freightfox-chat --network freightfox -p 8080:8080 \
+  -e SPRING_DATA_REDIS_HOST=freightfox-redis freightfox-chat
+
+docker logs -f freightfox-chat       # app logs
 ```
 
-The app waits for the Redis healthcheck (`depends_on: condition: service_healthy`) and is
-served at <http://localhost:8080>. Redis data is written to the `redis_data` volume with
-AOF enabled (`--appendonly yes`).
+The app is served at <http://localhost:8080>. Redis data is written to the
+`freightfox-redis-data` volume with AOF enabled, so chat history survives restarts.
 
-To override the Redis host or port, copy the safe template first:
-`cp .env.example .env` (Git Bash/macOS/Linux) or
-`Copy-Item .env.example .env` (PowerShell). Compose reads `.env` automatically from this
-directory, and Git ignores it. Without a `.env`, the defaults (`redis:6379`) are used.
+Stop and clean up:
+
+```bash
+docker rm -f freightfox-chat freightfox-redis
+docker volume rm freightfox-redis-data   # also deletes chat history
+```
 
 ## Run locally without Docker for the app
 
 ```bash
 docker run -d --name redis -p 6379:6379 redis:7-alpine redis-server --appendonly yes
-mvn clean package
+mvn clean package -DskipTests
 java -jar target/chat-app-1.0.0.jar
 ```
 
@@ -300,10 +304,10 @@ All keys are built in one place: `com.freightfox.chatapp.redis.RedisKeys`.
 Inspect from a shell:
 
 ```bash
-docker exec -it freightfox-redis-1 redis-cli HGETALL chat:room:general:metadata
-docker exec -it freightfox-redis-1 redis-cli SMEMBERS chat:room:general:participants
-docker exec -it freightfox-redis-1 redis-cli LRANGE chat:room:general:messages 0 -1
-docker exec -it freightfox-redis-1 redis-cli SUBSCRIBE chat:room:general:messages
+docker exec -it freightfox-redis redis-cli HGETALL chat:room:general:metadata
+docker exec -it freightfox-redis redis-cli SMEMBERS chat:room:general:participants
+docker exec -it freightfox-redis redis-cli LRANGE chat:room:general:messages 0 -1
+docker exec -it freightfox-redis redis-cli SUBSCRIBE chat:room:general:messages
 ```
 
 ## Tests
@@ -336,15 +340,17 @@ socket proxy rejects older API versions), point the tests at an already running 
 instead — no mocks, still a real server:
 
 ```bash
-docker run -d --name freightfox-test-redis --network freightfox_default redis:7-alpine \
-  redis-server --save "" --appendonly no
-docker run --rm --network freightfox_default \
-  -v "$PWD:/workspace" -w /workspace \
-  -e TEST_REDIS_HOST=freightfox-test-redis -e TEST_REDIS_PORT=6379 \
-  maven:3.9.6-eclipse-temurin-21 mvn -B test
+docker run -d --rm --name freightfox-test-redis -p 6379:6379 \
+  redis:7-alpine redis-server --save "" --appendonly no
+
+# Git Bash / macOS / Linux
+TEST_REDIS_HOST=localhost mvn -B test
+
+# Windows PowerShell
+$env:TEST_REDIS_HOST="localhost"; mvn -B test
 ```
 
-The suite flushes only the Redis it is given (a dedicated test container in the command above),
+The suite flushes only the Redis it is given (the dedicated container started above),
 so it never touches the application's data.
 
 ## API documentation
@@ -352,18 +358,6 @@ so it never touches the application's data.
 - Swagger UI: <http://localhost:8080/swagger-ui.html>
 - OpenAPI JSON: <http://localhost:8080/api-docs>
 - Demo UI: <http://localhost:8080/> (SSE-based, no polling)
-- Postman collection: [`postman/Freightfox-Chat.postman_collection.json`](postman/Freightfox-Chat.postman_collection.json)
-
-Run the collection headlessly:
-
-```bash
-docker run --rm --network freightfox_default \
-  -v "$PWD/postman:/etc/newman" postman/newman \
-  run /etc/newman/Freightfox-Chat.postman_collection.json \
-  --env-var baseUrl=http://freightfox-app-1:8080
-```
-
-Expected result: 14 requests, 34 assertions, 0 failures.
 
 ## Health check
 
@@ -427,15 +421,12 @@ curl https://<service-name>.onrender.com/actuator/health
 ```
 .
 ├── .dockerignore                 build-context exclusions
-├── .env.example                  safe local Compose template
+├── .gitattributes                line-ending normalization
+├── .gitignore                    build output / secret exclusions
 ├── Dockerfile                    multi-stage Maven → JRE image
-├── docker-compose.yml            local app + Redis
 ├── render.yaml                   Render Blueprint (web + Key Value)
 ├── pom.xml
 ├── README.md
-├── REPORT.md
-├── postman/
-│   └── Freightfox-Chat.postman_collection.json
 └── src
     ├── main/java/com/freightfox/chatapp
     │   ├── config/       RedisConfig, PubSubConfig, OpenApiConfig
@@ -449,7 +440,7 @@ curl https://<service-name>.onrender.com/actuator/health
     ├── main/resources
     │   ├── application.yml
     │   ├── application-prod.yml  public-surface hardening
-    │   └── static/index.html     demo UI
+    │   └── static/index.html     responsive demo UI
     └── test/java/com/freightfox/chatapp
         ├── controller/ integration/ listener/ service/ support/
         └── ChatApplicationTests.java
@@ -459,10 +450,10 @@ curl https://<service-name>.onrender.com/actuator/health
 
 | Symptom | Fix |
 |---|---|
-| App container restarts, logs `Connection refused` | Redis is not healthy yet; `docker compose ps`, then `docker compose logs redis` |
-| `GET /actuator/health` shows `redis: DOWN` | Wrong host/port; inside Compose use `SPRING_DATA_REDIS_HOST=redis` |
-| SSE connects but no messages arrive | Check the room id; publish a message and watch `docker compose logs -f app` for `Delivered message ... to room ...` |
-| Messages disappear after a restart | AOF disabled or volume removed (`docker compose down -v`); check `docker exec freightfox-redis-1 ls /data/appendonlydir` |
+| App container restarts, logs `Connection refused` | Redis is not up yet; `docker logs freightfox-redis`, then `docker logs freightfox-chat` |
+| `GET /actuator/health` shows `redis: DOWN` | Wrong host/port; inside the Docker network use `SPRING_DATA_REDIS_HOST=freightfox-redis` |
+| SSE connects but no messages arrive | Check the room id; publish a message and watch `docker logs -f freightfox-chat` for `Delivered message ... to room ...` |
+| Messages disappear after a restart | AOF disabled or the volume was removed (`docker volume rm freightfox-redis-data`); check `docker exec freightfox-redis ls /data/appendonlydir` |
 | `curl` sends invalid JSON on Windows PowerShell | PowerShell strips inner quotes for native commands; use a JSON file or `Invoke-RestMethod` |
 | `mvn test` fails to find Docker | Use the `TEST_REDIS_HOST` variant shown above |
 | Swagger UI empty | Open `/swagger-ui.html` (the JSON is at `/api-docs`) |
@@ -479,8 +470,8 @@ so reviewers can judge them explicitly.
    limiting and TLS termination.
 2. **The SSE registry is per application instance.** `RealtimeService` stores emitters in
    memory, so an instance writes only to the clients connected to that instance. Redis Pub/Sub
-   is still shared: every instance receives every published message. The delivered
-   single-container Compose deployment is unaffected. Horizontal scaling would need sticky
+   is still shared: every instance receives every published message. The single-instance
+   deployment used here is unaffected. Horizontal scaling would need sticky
    sessions or a shared relay (e.g. STOMP with a Redis-backed broker); alternatively clients
    reconnect and resynchronise history through the REST endpoint.
 3. **Posting implicitly joins the sender.** `sendMessage` runs `SADD` on the room's
@@ -490,8 +481,8 @@ so reviewers can judge them explicitly.
    self-declared presence marker, not an authorization decision.
 4. **No room or participant listing endpoint.** `SMEMBERS` / `KEYS` remain available through
    `redis-cli`; listing was not required by the assignment.
-5. **`allkeys-lru` with 256 MB** may evict data under memory pressure; acceptable for this
-   assignment and documented in `docker-compose.yml`.
+5. **`allkeys-lru` with 256 MB** may evict data under memory pressure. The policy is set for
+   the Render Key Value instance in `render.yaml`; acceptable for this assignment.
 
 Jackson default typing for Redis payloads is restricted to `com.freightfox.chatapp.model.*`
 plus JDK collection/time types to avoid unsafe polymorphic deserialization.

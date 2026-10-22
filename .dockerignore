@@ -10,9 +10,5 @@ out
 *.log
 .env
 .env.*
-!.env.example
-docker-compose*.yml
 README.md
-REPORT.md
-postman
 render.yaml
