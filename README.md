@@ -20,6 +20,7 @@ POST /messages ──► ChatRoomService ──RPUSH──► Redis List
 - SSE heartbeat comments every 15 s, automatic emitter cleanup on completion/timeout/error.
 - Bean validation on every request field, consistent JSON error envelope.
 - Swagger/OpenAPI documentation and an **optional** demo UI at `/` (static HTML, not required to use the API).
+- Responsive demo UI: desktop sidebar, mobile/tablet drawer, safe-area aware, touch-sized controls.
 - Redis AOF persistence so messages survive application and Redis restarts.
 - 62 automated tests (unit + MockMvc + real-Redis integration + end-to-end SSE).
 

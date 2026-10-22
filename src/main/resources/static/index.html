@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0d1017" />
+<meta name="color-scheme" content="dark" />
+<meta name="description" content="Freightfox Chat — real-time chat rooms backed by Redis." />
 <title>Freightfox Chat</title>
 <style>
   :root {
@@ -15,204 +18,505 @@
     --accent: #4f8cff;
     --accent-2: #22c55e;
     --danger: #ef4444;
+    --link: #7ea8ff;
+    --radius: 18px;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --gutter: clamp(14px, 3.2vw, 22px);
   }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { height: 100%; -webkit-text-size-adjust: 100%; }
+
   body {
-    background: radial-gradient(1200px 600px at 15% -10%, #16233b 0%, var(--bg) 55%);
+    margin: 0;
+    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    background: radial-gradient(1200px 600px at 15% -10%, #16233b 0%, var(--bg) 55%) no-repeat fixed;
+    background-color: var(--bg);
     color: var(--text);
-    font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: 15px/1.5 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: clamp(0px, 2vw, 24px);
+    padding-top: max(clamp(0px, 2vw, 24px), var(--safe-t));
+    padding-right: max(clamp(0px, 2vw, 24px), var(--safe-r));
+    padding-bottom: max(clamp(0px, 2vw, 24px), var(--safe-b));
+    padding-left: max(clamp(0px, 2vw, 24px), var(--safe-l));
+    overflow: hidden;
   }
+
   .app {
-    width: min(1080px, 100%);
-    height: min(720px, calc(100vh - 48px));
+    width: min(1120px, 100%);
+    height: min(840px, 100%);
     display: grid;
-    grid-template-columns: 300px 1fr;
+    grid-template-columns: clamp(248px, 25vw, 300px) minmax(0, 1fr);
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 18px;
+    border-radius: var(--radius);
     overflow: hidden;
     box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
   }
+
+  /* ---------- sidebar ---------- */
   aside {
     background: var(--panel-2);
     border-right: 1px solid var(--line);
-    padding: 22px;
+    padding: clamp(16px, 2.4vw, 22px);
+    padding-top: max(clamp(16px, 2.4vw, 22px), var(--safe-t));
+    padding-left: max(clamp(16px, 2.4vw, 22px), var(--safe-l));
+    padding-bottom: max(clamp(16px, 2.4vw, 22px), var(--safe-b));
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: clamp(12px, 1.8vh, 18px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #2c374d transparent;
   }
-  .brand { display: flex; align-items: center; gap: 10px; }
+  aside::-webkit-scrollbar { width: 8px; }
+  aside::-webkit-scrollbar-thumb { background: #2c374d; border-radius: 999px; }
+
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .logo {
-    width: 34px; height: 34px; border-radius: 10px;
+    width: 34px; height: 34px; border-radius: 10px; flex: 0 0 34px;
     background: linear-gradient(135deg, var(--accent), #7c5cff);
     display: grid; place-items: center; font-size: 18px;
   }
-  .brand h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  .brand-text { min-width: 0; }
+  .brand h1 {
+    font-size: 16px; margin: 0; letter-spacing: .3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .brand span { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
 
   label { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .field { display: block; }
   input {
     width: 100%; margin-top: 6px; padding: 10px 12px;
     background: #10151e; border: 1px solid var(--line); border-radius: 10px;
-    color: var(--text); font-size: 14px; outline: none;
+    color: var(--text); font-size: 14px; font-family: inherit; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+    min-width: 0;
   }
+  input::placeholder { color: #5f6c84; }
   input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 255, .15); }
+  input:disabled { opacity: .6; cursor: not-allowed; }
 
   button {
     border: 0; border-radius: 10px; padding: 10px 14px;
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    background: var(--accent); color: #fff; transition: filter .15s;
+    font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
+    background: var(--accent); color: #fff;
+    transition: filter .15s, background .15s, border-color .15s, color .15s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    min-height: 42px;
   }
   button:hover { filter: brightness(1.1); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:active { filter: brightness(.95); }
+  button:disabled { opacity: .5; cursor: not-allowed; filter: none; }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
   button.ghost:hover { color: var(--text); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .field { display: block; }
+  .actions { display: grid; gap: 10px; }
   .status {
     display: flex; align-items: center; gap: 8px;
     font-size: 12px; color: var(--muted);
     background: #10151e; border: 1px solid var(--line);
     padding: 9px 12px; border-radius: 10px;
+    min-height: 38px;
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  #statusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: 0 0 8px; }
   .dot.on { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
-  .spacer { flex: 1; }
-  .hint { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .spacer { flex: 1 1 auto; min-height: 0; }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.7; overflow-wrap: anywhere; }
   .hint code { background: #10151e; padding: 1px 5px; border-radius: 4px; color: #9fb7e8; }
+  .hint a { color: var(--link); }
 
-  main { display: flex; flex-direction: column; min-width: 0; }
+  /* ---------- main ---------- */
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
   .topbar {
     display: flex; align-items: center; gap: 12px;
-    padding: 16px 22px; border-bottom: 1px solid var(--line);
+    padding: 16px var(--gutter);
+    padding-left: max(var(--gutter), var(--safe-l));
+    padding-right: max(var(--gutter), var(--safe-r));
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    min-height: 0;
   }
-  .topbar .room { font-weight: 600; }
-  .topbar .sub { font-size: 12px; color: var(--muted); }
+  .room-meta { min-width: 0; flex: 1 1 auto; }
+  .topbar .room {
+    font-weight: 600; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .topbar .sub {
+    font-size: 12px; color: var(--muted); line-height: 1.4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .live {
-    margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+    flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
     font-size: 11px; letter-spacing: .8px; font-weight: 700; color: var(--muted);
     border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px;
+    line-height: 1.4;
   }
   .live.on { color: var(--accent-2); border-color: rgba(34, 197, 94, .45); }
-  .live .dot { width: 7px; height: 7px; }
+  .live.on .dot { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+  .live .dot { width: 7px; height: 7px; flex-basis: 7px; }
+
+  .icon-btn {
+    flex: 0 0 auto;
+    display: none;
+    place-items: center;
+    width: 42px; height: 42px; min-height: 42px; padding: 0;
+    background: #10151e; border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px;
+  }
+  .icon-btn:hover { color: var(--text); filter: none; background: #161d28; }
+  .icon-btn svg { width: 20px; height: 20px; display: block; }
 
   #messages {
-    flex: 1; overflow-y: auto; padding: 22px;
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: var(--gutter);
+    padding-left: max(var(--gutter), var(--safe-l));
+    padding-right: max(var(--gutter), var(--safe-r));
     display: flex; flex-direction: column; gap: 12px;
+    scrollbar-width: thin;
+    scrollbar-color: #2c374d transparent;
   }
-  .empty { margin: auto; text-align: center; color: var(--muted); font-size: 13px; }
-  .empty .big { font-size: 34px; margin-bottom: 8px; }
+  #messages::-webkit-scrollbar { width: 10px; }
+  #messages::-webkit-scrollbar-thumb { background: #2c374d; border-radius: 999px; border: 2px solid var(--panel); }
+  .empty {
+    margin: auto; text-align: center; color: var(--muted); font-size: 13px;
+    max-width: 34ch; padding: 12px; overflow-wrap: anywhere;
+  }
+  .empty .big { font-size: clamp(28px, 6vw, 34px); margin-bottom: 8px; }
+  .empty-mobile { display: none; }
+  .empty strong { color: var(--text); font-weight: 600; }
 
-  .msg { display: flex; gap: 10px; max-width: 78%; animation: pop .18s ease; }
+  .msg {
+    display: flex; gap: 10px;
+    max-width: min(78%, 600px);
+    animation: pop .18s ease;
+    min-width: 0;
+  }
   @keyframes pop { from { transform: translateY(4px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .msg { animation: none; }
+    * { transition-duration: .01ms !important; }
+  }
   .msg.mine { align-self: flex-end; flex-direction: row-reverse; }
   .avatar {
     width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px;
     display: grid; place-items: center; font-size: 13px; font-weight: 700;
     background: #2a3550; color: #b9c9ee;
+    user-select: none;
   }
   .msg.mine .avatar { background: #23407a; color: #cfe0ff; }
+  .content { min-width: 0; }
   .bubble {
     background: var(--panel-2); border: 1px solid var(--line);
     padding: 9px 13px; border-radius: 12px;
+    overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap;
   }
   .msg.mine .bubble { background: #1d3a70; border-color: #2a4c8f; }
-  .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; overflow-wrap: anywhere; }
   .msg.mine .meta { text-align: right; }
 
   .composer {
-    display: flex; gap: 10px; padding: 16px 22px;
+    display: flex; gap: 10px; align-items: center;
+    padding: 16px var(--gutter);
+    padding-left: max(var(--gutter), var(--safe-l));
+    padding-right: max(var(--gutter), var(--safe-r));
+    padding-bottom: max(16px, var(--safe-b));
     border-top: 1px solid var(--line); background: #121722;
+    flex: 0 0 auto;
   }
-  .composer input { margin: 0; flex: 1; }
+  .composer input { margin: 0; flex: 1 1 auto; }
+  .composer button { flex: 0 0 auto; padding-inline: 20px; }
 
   .toast {
-    position: fixed; bottom: 26px; left: 50%; transform: translate(-50%, 80px);
+    position: fixed; bottom: 26px; left: 50%;
+    bottom: calc(26px + var(--safe-b));
+    transform: translate(-50%, 80px);
+    width: max-content; max-width: min(440px, calc(100vw - 32px));
     background: #2a1a1e; border: 1px solid #5a2b33; color: #ffb4b4;
     padding: 11px 16px; border-radius: 10px; font-size: 13px;
-    opacity: 0; transition: all .25s ease; pointer-events: none; z-index: 10;
+    text-align: center; overflow-wrap: anywhere;
+    opacity: 0; transition: transform .25s ease, opacity .25s ease;
+    pointer-events: none; z-index: 60;
   }
   .toast.show { transform: translate(-50%, 0); opacity: 1; }
 
-  @media (max-width: 760px) {
-    body { padding: 0; }
-    .app { grid-template-columns: 1fr; height: 100vh; border-radius: 0; border: 0; }
-    aside { display: none; }
+  .scrim {
+    position: fixed; inset: 0; z-index: 45;
+    background: rgba(4, 7, 12, .62);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    opacity: 0; visibility: hidden;
+    transition: opacity .25s ease, visibility .25s ease;
+    border: 0; padding: 0; min-height: 0; border-radius: 0;
+    cursor: pointer;
+  }
+
+  /* ---------- tablet / phone shell ---------- */
+  @media (max-width: 880px) {
+    body {
+      padding: 0;
+      height: var(--app-h, 100dvh);
+      min-height: var(--app-h, 100dvh);
+      display: block;
+    }
+    .app {
+      width: 100%; height: 100%;
+      grid-template-columns: minmax(0, 1fr);
+      border: 0; border-radius: 0;
+      box-shadow: none;
+    }
+
+    aside {
+      position: fixed; top: 0; bottom: 0; left: 0;
+      width: min(330px, 86vw);
+      z-index: 50;
+      border-right: 1px solid var(--line);
+      box-shadow: 0 0 60px rgba(0, 0, 0, .6);
+      transform: translateX(-102%);
+      transition: transform .28s cubic-bezier(.4, 0, .2, 1);
+      overflow-y: auto;
+      padding: calc(18px + var(--safe-t)) calc(18px + var(--safe-r)) calc(18px + var(--safe-b)) calc(18px + var(--safe-l));
+      gap: 14px;
+    }
+    body.nav-open aside { transform: none; }
+    body.nav-open .scrim { opacity: 1; visibility: visible; pointer-events: auto; }
+    body.nav-open { overscroll-behavior: none; }
+
+    .icon-btn { display: grid; }
+    .menu-btn { display: grid; }
+    .icon-btn.close-btn { margin-left: auto; display: grid; width: 38px; height: 38px; min-height: 38px; }
+
+    /* 16px keeps iOS from zooming the page on focus */
+    input { font-size: 16px; padding: 12px; }
+    button { min-height: 46px; font-size: 15px; }
+
+    .topbar { padding: 10px var(--gutter); padding-left: max(var(--gutter), var(--safe-l)); padding-right: max(var(--gutter), var(--safe-r)); gap: 10px; }
+    .topbar .room { font-size: 15px; }
+
+    .msg { max-width: 88%; }
+    .avatar { width: 28px; height: 28px; flex-basis: 28px; font-size: 12px; }
+
+    .empty-desktop { display: none; }
+    .empty-mobile { display: inline; }
+
+    .composer { padding: 10px var(--gutter); padding-left: max(var(--gutter), var(--safe-l)); padding-right: max(var(--gutter), var(--safe-r)); padding-bottom: max(10px, var(--safe-b)); gap: 8px; }
+    .composer button { padding-inline: 18px; }
+
+    .toast { bottom: calc(16px + var(--safe-b)); }
+
+    /* keep the drawer from ever leaking a scrollbar on the page behind it */
+    body.nav-open .app { pointer-events: none; }
+    body.nav-open aside { pointer-events: auto; }
+  }
+
+  @media (min-width: 881px) and (max-width: 1080px) {
+    .app { grid-template-columns: 250px minmax(0, 1fr); }
+    aside { padding: 18px; }
+    .msg { max-width: 82%; }
+  }
+
+  /* short viewports: laptop/landscape phones */
+  @media (max-height: 620px) and (min-width: 881px) {
+    body { padding: 10px; }
+    .app { border-radius: 14px; height: 100%; }
+    aside { padding: 14px 16px; gap: 10px; }
+    .brand span, .hint { display: none; }
+    .logo { width: 30px; height: 30px; flex-basis: 30px; font-size: 16px; }
+    button { min-height: 38px; padding-block: 8px; }
+    .topbar { padding-block: 10px; }
+    .composer { padding-block: 10px; }
+  }
+
+  @media (max-width: 880px) and (max-height: 480px) {
+    .topbar { padding-block: 8px; }
+    .topbar .sub { display: none; }
+    .brand span, .hint { display: none; }
+    aside { gap: 10px; }
+    .status { padding-block: 7px; }
+  }
+
+  @media (max-width: 400px) {
+    :root { --gutter: 12px; }
+    .live { padding: 4px 8px; letter-spacing: .5px; font-size: 10px; }
+    .topbar .sub { font-size: 11px; }
+    .msg { max-width: 92%; }
+    .composer button { padding-inline: 14px; }
+  }
+
+  @media (max-width: 340px) {
+    .brand h1 { font-size: 14px; }
+    .composer input { padding-inline: 10px; }
+    .live { padding: 4px 7px; font-size: 10px; letter-spacing: .4px; gap: 5px; }
+    .topbar { gap: 8px; }
+    .menu-btn { width: 40px; }
+  }
+
+  /* Touch devices should not keep a hover style after a tap. */
+  @media (hover: none) and (pointer: coarse) {
+    button:hover { filter: none; }
+    button.ghost:hover { color: var(--muted); }
+    .icon-btn:hover { background: #10151e; color: var(--text); }
   }
 </style>
 </head>
 <body>
 <div class="app">
-  <aside>
+  <aside id="sidebar" aria-label="Room settings">
     <div class="brand">
-      <div class="logo">💬</div>
-      <div>
+      <div class="logo" aria-hidden="true">💬</div>
+      <div class="brand-text">
         <h1>Freightfox Chat</h1>
         <span>Redis-backed rooms</span>
       </div>
+      <button class="icon-btn close-btn" id="closeSidebar" type="button" aria-label="Close room settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
     </div>
 
-    <div class="status">
+    <div class="status" role="status" aria-live="polite">
       <span class="dot" id="dot"></span>
       <span id="statusText">Connecting…</span>
     </div>
 
     <label class="field">Room
-      <input id="roomInput" value="general" placeholder="e.g. general" autocomplete="off" />
+      <input id="roomInput" value="general" placeholder="e.g. general"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
     </label>
 
     <label class="field">Your name
-      <input id="nameInput" placeholder="e.g. alice" autocomplete="off" />
+      <input id="nameInput" placeholder="e.g. alice"
+             autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" />
     </label>
 
-    <button id="joinBtn">Join room</button>
-    <button id="leaveBtn" class="ghost">Leave</button>
+    <div class="actions">
+      <button id="joinBtn" type="button">Join room</button>
+      <button id="leaveBtn" type="button" class="ghost">Leave</button>
+    </div>
 
     <div class="spacer"></div>
 
     <div class="hint">
       REST API on <code>/api/chatapp</code><br />
       Live delivery: SSE <code>/stream</code><br />
-      Swagger UI: <a style="color:#7ea8ff" href="/swagger-ui.html" target="_blank">/swagger-ui.html</a>
+      Swagger UI: <a href="/swagger-ui.html" target="_blank" rel="noopener">/swagger-ui.html</a>
     </div>
   </aside>
 
+  <button class="scrim" id="scrim" type="button" tabindex="-1" aria-label="Close room settings"></button>
+
   <main>
     <div class="topbar">
-      <div>
+      <button class="icon-btn menu-btn" id="menuBtn" type="button"
+              aria-label="Open room settings" aria-controls="sidebar" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
+      <div class="room-meta">
         <div class="room" id="roomTitle">No room joined</div>
         <div class="sub" id="roomSub">Enter a room and your name to start chatting</div>
       </div>
-      <div class="live" id="liveBadge"><span class="dot"></span><span id="liveText">OFFLINE</span></div>
+      <div class="live" id="liveBadge" aria-live="polite">
+        <span class="dot"></span><span id="liveText">OFFLINE</span>
+      </div>
     </div>
 
-    <div id="messages">
+    <div id="messages" aria-label="Messages">
       <div class="empty">
-        <div class="big">💬</div>
-        Join a room to see the conversation.<br />
-        History is stored in Redis, so it survives restarts.
+        <div class="big" aria-hidden="true">💬</div>
+        <span class="empty-desktop">Join a room to see the conversation.<br />
+        History is stored in Redis, so it survives restarts.</span>
+        <span class="empty-mobile">Tap <strong>☰</strong> to choose a room and a name.<br />
+        History is stored in Redis.</span>
       </div>
     </div>
 
     <form class="composer" id="composer">
-      <input id="messageInput" placeholder="Type a message…" autocomplete="off" disabled />
+      <input id="messageInput" placeholder="Type a message…" autocomplete="off"
+             enterkeyhint="send" aria-label="Message" disabled />
       <button id="sendBtn" type="submit" disabled>Send</button>
     </form>
   </main>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="alert" aria-live="assertive"></div>
 
 <script>
   const API = "/api/chatapp/chatrooms";
   const el = (id) => document.getElementById(id);
   const state = { room: null, me: null, es: null, messages: [], seen: new Set() };
 
+  /* ---------- responsive shell ---------- */
+  const mobileQuery = window.matchMedia("(max-width: 880px)");
+
+  function setSidebar(open) {
+    document.body.classList.toggle("nav-open", open);
+    el("menuBtn").setAttribute("aria-expanded", String(open));
+    const main = document.querySelector("main");
+    if (open) {
+      main.setAttribute("inert", "");
+      el("closeSidebar").focus({ preventScroll: true });
+    } else {
+      main.removeAttribute("inert");
+      if (document.activeElement === el("closeSidebar")) el("menuBtn").focus({ preventScroll: true });
+    }
+  }
+
+  function openSidebar() {
+    if (!mobileQuery.matches) return;
+    setSidebar(true);
+  }
+
+  function closeSidebar() {
+    if (!document.body.classList.contains("nav-open")) return;
+    setSidebar(false);
+  }
+
+  el("menuBtn").addEventListener("click", openSidebar);
+  el("closeSidebar").addEventListener("click", closeSidebar);
+  el("scrim").addEventListener("click", closeSidebar);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.body.classList.contains("nav-open")) closeSidebar();
+  });
+
+  mobileQuery.addEventListener
+    ? mobileQuery.addEventListener("change", closeSidebar)
+    : mobileQuery.addListener(closeSidebar);
+
+  /* Mobile browsers shrink the visual viewport when the keyboard opens. Tracking it keeps
+     the composer visible above the keyboard instead of hiding it behind it. */
+  function trackViewport() {
+    if (!window.visualViewport) return;
+    const vv = window.visualViewport;
+    const apply = () => {
+      document.documentElement.style.setProperty("--app-h", Math.round(vv.height) + "px");
+    };
+    vv.addEventListener("resize", apply);
+    apply();
+  }
+  trackViewport();
+
+  /* ---------- helpers ---------- */
   function toast(msg) {
     const t = el("toast");
     t.textContent = msg;
@@ -254,26 +558,29 @@
   }
 
   const keyOf = (m) => `${m.timestamp}|${m.participant}|${m.message}`;
+  const nearBottom = (box) => box.scrollHeight - box.scrollTop - box.clientHeight < 120;
 
   function messageHtml(m) {
     const mine = m.participant === state.me;
     return `<div class="msg${mine ? " mine" : ""}">
-      <div class="avatar">${initials(m.participant)}</div>
-      <div>
+      <div class="avatar" aria-hidden="true">${initials(m.participant)}</div>
+      <div class="content">
         <div class="meta">${escapeHtml(m.participant)} · ${timeOf(m.timestamp)}</div>
         <div class="bubble">${escapeHtml(m.message)}</div>
       </div>
     </div>`;
   }
 
-  function render() {
+  function render(stickToBottom = true) {
     const box = el("messages");
     if (!state.messages.length) {
-      box.innerHTML = '<div class="empty"><div class="big">💬</div>No messages yet. Say hello!</div>';
+      box.innerHTML = '<div class="empty"><div class="big" aria-hidden="true">💬</div>No messages yet. Say hello!</div>';
       return;
     }
+    // Re-rendering resets scrollTop, so keep the reading position unless we should follow the tail.
+    const previousTop = box.scrollTop;
     box.innerHTML = state.messages.map(messageHtml).join("");
-    box.scrollTop = box.scrollHeight;
+    box.scrollTop = stickToBottom ? box.scrollHeight : previousTop;
   }
 
   function escapeHtml(s) {
@@ -285,10 +592,12 @@
   function addMessage(m) {
     const key = keyOf(m);
     if (state.seen.has(key)) return;
+    const box = el("messages");
+    const stick = nearBottom(box);
     state.seen.add(key);
     state.messages.push(m);
     state.messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    render();
+    render(stick);
   }
 
   async function loadHistory() {
@@ -355,11 +664,12 @@
       el("roomSub").textContent = "You are " + me;
       el("messageInput").disabled = false;
       el("sendBtn").disabled = false;
-      el("messageInput").focus();
       setOnline(true);
+      closeSidebar();
 
-      await loadHistory();
+      await loadHistory().catch(() => {});
       connectStream();
+      if (!mobileQuery.matches) el("messageInput").focus();
     } catch (e) {
       toast(e.message);
       setOnline(false);
@@ -376,7 +686,7 @@
     state.seen = new Set();
     el("roomTitle").textContent = "No room joined";
     el("roomSub").textContent = "Enter a room and your name to start chatting";
-    el("messages").innerHTML = '<div class="empty"><div class="big">💬</div>Join a room to see the conversation.</div>';
+    el("messages").innerHTML = '<div class="empty"><div class="big" aria-hidden="true">💬</div>Join a room to see the conversation.</div>';
     el("messageInput").disabled = true;
     el("sendBtn").disabled = true;
     el("messageInput").value = "";
@@ -384,8 +694,8 @@
 
   el("joinBtn").addEventListener("click", join);
   el("leaveBtn").addEventListener("click", leave);
-  el("roomInput").addEventListener("keydown", (e) => { if (e.key === "Enter") el("nameInput").focus(); });
-  el("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+  el("roomInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); el("nameInput").focus(); } });
+  el("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); join(); } });
 
   el("composer").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -411,7 +721,7 @@
     .then((r) => r.json())
     .then((h) => {
       setOnline(h.status === "UP");
-      if (h.components && h.components.redis) {
+      if (h.components && h.components.redis && h.components.redis.details) {
         el("statusText").textContent = "Connected · Redis " + h.components.redis.details.version;
       }
     })
